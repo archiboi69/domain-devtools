@@ -1,5 +1,5 @@
 import { NodeServices } from "@effect/platform-node";
-import { Array, Effect, Stream } from "effect";
+import { Array, Effect, Stream, String as Str } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -35,6 +35,30 @@ describe("CLI streams and selectors", () => {
         expect(names.stdout).toBe("Primary\nSecondary\n");
         expect(names.stderr).toBe("");
         expect(names.exitCode).toBe(0);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise),
+    20_000,
+  );
+
+  it(
+    "renders every aggregate command in declaration order with one document heading",
+    () =>
+      Effect.gen(function* () {
+        const result = yield* run(["aggregate", "commands", "Lifecycle", ...entry]);
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        const lines = Str.split(result.stdout, "\n");
+        expect(Array.filter(lines, (line) => line === "# Lifecycle")).toHaveLength(1);
+        expect(Array.filter(lines, Str.startsWith("## "))).toEqual([
+          "## Start",
+          "## Finish",
+          "## ResetBlocked",
+          "## ResetOtherKind",
+          "## SelectNested",
+        ]);
+        expect(Array.filter(lines, (line) => line === "```mermaid")).toHaveLength(5);
+        expect(result.stdout).toContain("### decide — Finish");
+        expect(result.stdout).toContain("### evolve — Completed");
+        expect(result.stdout).not.toContain("COMMAND: Increase");
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise),
     20_000,
   );

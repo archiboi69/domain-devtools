@@ -2,7 +2,7 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Array, Cause, Console, Effect, Option, Order, Schema } from "effect";
 import { Argument, CliError, CliOutput, Command, Flag } from "effect/cli";
 import { filterModels, loadCatalog, selectAggregate } from "./catalog";
-import { renderCommand } from "./diagram";
+import { renderAggregateCommands, renderCommand } from "./diagram";
 import { DiagramError } from "./diagram-error";
 import { readAggregateLocation, readHandlerSource } from "./source";
 import { readStateDiagram, renderStateDiagram } from "./state-diagram";
@@ -58,6 +58,20 @@ const command = Command.make(
     yield* Console.log(markdown);
   }),
 ).pipe(Command.withDescription("Render one command diagram as Markdown"));
+
+const aggregateCommands = Command.make(
+  "commands",
+  { name: Argument.String("aggregate-name") },
+  Effect.fn(function* ({ name }) {
+    const source = yield* resolve("aggregate", name);
+    const handlers = yield* readHandlerSource(source.path, source.exportName);
+    const markdown = yield* Effect.try({
+      try: () => renderAggregateCommands(source.aggregate, handlers),
+      catch: (cause) => DiagramError.make({ message: `Cannot render ${name}`, cause }),
+    });
+    yield* Console.log(markdown);
+  }),
+).pipe(Command.withDescription("Render every command in one aggregate as Markdown"));
 
 const states = Command.make(
   "states",
@@ -125,7 +139,7 @@ root.pipe(
     models,
     commands,
     aggregates,
-    Command.make("aggregate").pipe(Command.withSubcommands([states])),
+    Command.make("aggregate").pipe(Command.withSubcommands([aggregateCommands, states])),
   ]),
   Command.run({ version: "0.1.0" }),
   Effect.tapCause((cause) =>

@@ -17,12 +17,16 @@ describe("aggregate diagrams", () => {
       expect(markdown).toContain("COMMAND: Increase<br/>amount");
       expect(markdown).toContain("EVENT: Increased");
       expect(markdown).toContain("REJECTION: Limited");
-      expect(markdown).toContain("class C command");
+      // tkmp applies classes only to nodes already declared.
+      expect(markdown).toContain('C["COMMAND: Increase<br/>amount"]\n    class C command');
+      expect(markdown).not.toContain("State unchanged");
       expect(markdown).toContain("class E0 event");
       expect(markdown).toContain("classDef command fill:#dbeafe,stroke:#2563eb,color:#172554");
       expect(markdown).toContain("classDef event fill:#dcfce7,stroke:#16a34a,color:#14532d");
       expect(markdown).toContain("class R0 rejection");
-      expect(markdown).toContain("declared rejection");
+      expect(markdown).toContain("D -.->|rejects| R0");
+      expect(markdown).toContain("D -.->|emits| E0");
+      expect(markdown).not.toContain("Declared outcomes;");
       expect(markdown).toContain("OUTPUT STATE<br/>Empty<br/>Counting");
       expect(markdown).not.toContain("Resulting state");
       expect(markdown).toContain("accepted no-op contract");

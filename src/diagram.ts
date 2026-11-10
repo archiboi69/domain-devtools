@@ -127,22 +127,14 @@ function codeBlock(source: string): string {
 }
 
 /** Contract edges describe possibilities, not proven control flow or reachability. */
-export const renderCommand: {
-  (commandTag: string, source: HandlerSource): (aggregate: AggregateContract) => string;
-  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string;
-} = Function.dual(
-  3,
-  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string => {
-    const { definition } = aggregate;
-    const command = Option.getOrUndefined(
-      Array.findFirst(definition.commands, (command) => command.tag === commandTag),
-    );
-    if (command === undefined) throw new Error(`Unknown command: ${commandTag}`);
-    const stateDescription = describeState(definition.state);
-    const sections = [
-      `# ${aggregate.aggregateName}`,
-      "Declared outcomes; no reachability inferred. Handler code is source, not an execution trace.",
-    ];
+function renderCommands(
+  aggregate: AggregateContract,
+  commands: AggregateContract["definition"]["commands"],
+  source: HandlerSource,
+): string {
+  const stateDescription = describeState(aggregate.definition.state);
+  const sections = [`# ${aggregate.aggregateName}`];
+  for (const command of commands) {
     const decision = source.decide.get(command.tag);
     if (decision === undefined) throw new Error(`Missing decide source: ${command.tag}`);
     const handlers = [`### decide — ${command.tag}`, codeBlock(decision)];
@@ -152,7 +144,6 @@ export const renderCommand: {
       "    classDef command fill:#dbeafe,stroke:#2563eb,color:#172554",
       "    classDef event fill:#dcfce7,stroke:#16a34a,color:#14532d",
       "    classDef rejection fill:#fee2e2,stroke:#dc2626,color:#450a0a",
-      "    class C command",
       node("B", `INPUT STATE\n${stateDescription}`),
       node(
         "C",
@@ -162,10 +153,11 @@ export const renderCommand: {
           Array.join("\n"),
         )}`,
       ),
+      "    class C command",
       '    D{"decide"}',
       "    B --> D",
       "    C --> D",
-      node("N", "No events\nState unchanged"),
+      node("N", "No events"),
       '    D -.->|"accepted no-op contract"| N',
     ];
     for (const [index, event] of command.events.entries()) {
@@ -177,7 +169,7 @@ export const renderCommand: {
         `    class E${index} event`,
         `    V${index}[["${label(`evolve\n${event.tag}`)}"]]`,
         node(`S${index}`, `OUTPUT STATE\n${stateDescription}`),
-        `    D -.->|declared event| E${index}`,
+        `    D -.->|emits| E${index}`,
         `    E${index} --> V${index}`,
         `    B -->|previous state| V${index}`,
         `    V${index} --> S${index}`,
@@ -185,13 +177,34 @@ export const renderCommand: {
     }
     for (const [index, rejection] of command.rejects.entries()) {
       lines.push(
-        node(`R${index}`, `REJECTION: ${rejection.tag}\nState unchanged`),
+        node(`R${index}`, `REJECTION: ${rejection.tag}`),
         `    class R${index} rejection`,
-        `    D -.->|declared rejection| R${index}`,
+        `    D -.->|rejects| R${index}`,
       );
     }
     lines.push("```");
     sections.push(`## ${command.tag}`, Array.join(lines, "\n"), ...handlers);
-    return `${Array.join(sections, "\n\n")}\n`;
+  }
+  return `${Array.join(sections, "\n\n")}\n`;
+}
+
+export const renderCommand: {
+  (commandTag: string, source: HandlerSource): (aggregate: AggregateContract) => string;
+  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string;
+} = Function.dual(
+  3,
+  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string => {
+    const command = Option.getOrUndefined(
+      Array.findFirst(aggregate.definition.commands, (command) => command.tag === commandTag),
+    );
+    if (command === undefined) throw new Error(`Unknown command: ${commandTag}`);
+    return renderCommands(aggregate, [command], source);
   },
+);
+
+export const renderAggregateCommands: {
+  (source: HandlerSource): (aggregate: AggregateContract) => string;
+  (aggregate: AggregateContract, source: HandlerSource): string;
+} = Function.dual(2, (aggregate: AggregateContract, source: HandlerSource): string =>
+  renderCommands(aggregate, aggregate.definition.commands, source),
 );

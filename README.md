@@ -34,6 +34,9 @@ cd /path/to/your-application
 # One command diagram
 vpx /path/to/domain-devtools/src/cli.ts command RequestTransfer > request-transfer.md
 
+# Every command in one aggregate
+vpx /path/to/domain-devtools/src/cli.ts aggregate commands Transfer > transfer-commands.md
+
 # One aggregate state overview with self-loops
 vpx /path/to/domain-devtools/src/cli.ts aggregate states Transfer > transfer-states.md
 
@@ -65,7 +68,7 @@ Inspect the output before you share it.
 
 ### Command diagrams
 
-Each diagram shows a command and its declared events and rejections. A diamond marks `decide`. Subroutine boxes mark `evolve`. Original handler source appears in TypeScript code blocks below the diagram. Commands are blue, events are green, and rejections are red. Text labels also identify each type.
+`command` renders one command. `aggregate commands` renders every command in declaration order, with one aggregate heading and one section per command. Each diagram shows a command and its declared events and rejections. A diamond marks `decide`. Subroutine boxes mark `evolve`. Original handler source appears in TypeScript code blocks below the diagram. Commands are blue, events are green, and rejections are red. Text labels also identify each type.
 
 Declared outcomes are contract possibilities, not proven paths. The accepted no-op edge does not prove that the handler returns no events. INPUT STATE and OUTPUT STATE list the declared aggregate states, or Effect schema notation for an untagged state. These lists do not identify event-specific destinations.
 
