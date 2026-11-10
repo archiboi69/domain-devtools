@@ -41,6 +41,7 @@ const AggregateFields = Schema.Struct({
   aggregateName: Schema.String,
   definition: Schema.Struct({
     state: RuntimeSchema,
+    initial: Schema.optional(Schema.Unknown),
     commands: Schema.Array(CommandContract),
     decide: Schema.Record(Schema.String, Handler),
     evolve: Schema.Record(Schema.String, Handler),

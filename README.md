@@ -2,7 +2,7 @@
 
 Inspect Alchemy Domain aggregate contracts and generate source-backed Mermaid diagrams.
 
-The current tool produces one diagram per command. Each diagram shows input state tags, command fields, the actual `decide` source, declared events and rejections, and the actual `evolve` source. Commands are blue, events are orange, and rejections are red. Labels also identify each node type.
+The tool produces command diagrams and aggregate state overviews. Each command diagram shows input state tags, command fields, the actual `decide` source, declared events and rejections, and the actual `evolve` source. Commands are blue, events are orange, and rejections are red. Labels also identify each node type.
 
 ## Setup
 
@@ -49,13 +49,28 @@ vp run diagram src/diagram.fixture.ts Counter /tmp/counter.md
 
 This fixture exercises the metadata interface without an application or external services.
 
-## What the diagram means
+## State overview
+
+Select the state view to trace supported decision paths through event arrays and evolution handlers:
+
+```sh
+vpx /path/to/domain-devtools/src/cli.ts --view states \
+  src/account/account.aggregate.ts Account /tmp/account-states.md
+```
+
+Each node is a declared top-level `_tag`. Each arrow has exactly one event label. Different events between the same states have separate arrows. Commands appear in the evidence table below the graph. Add `--include-self-loops` to include same-tag updates in the graph; the table always includes them.
+
+This is bounded static analysis, not execution or a reachability proof. It supports explicit tag comparisons, boolean guards, conditionals, early returns, tag switches, root aliases, and `Effect.gen` returns. Other guards remain unknown. Required schema literals can rule out impossible branches without becoming state nodes. The compiler supplies singleton event tags, including typed event helper results. Evolution reads explicit returned tags and typed object spreads. Conditional `_tag` expressions contribute each distinct literal destination as a static candidate; an unknown branch remains an explicit gap. Multiple events in one array evolve in order through every resolved destination.
+
+Unsupported paths appear under **Unresolved paths**, outside the diagram. Nested state selection, reassigned state aliases, loops, arbitrary wrappers, and ambiguous helper-returned states require more analysis. Partial diagrams remain partial. Untagged schemas produce a report rather than invented states based on fields such as `status`.
+
+## What the command diagram means
 
 Runtime metadata supplies state tags, command fields, declared events, and declared rejections. The TypeScript compiler supplies handler source and resolves imported references, aliases, object spreads, and property overrides.
 
 A declared event is a contract possibility, not proof of a reachable code path. The accepted no-op edge describes the aggregate contract; it does not claim that the handler contains a literal `return []`. The resulting state remains unspecified until execution supplies a concrete result.
 
-The tool does not interpret business guards, infer substates, or execute commands. It does not yet capture Stories, highlight execution paths, inspect live instances, or provide a browser interface.
+The tool does not evaluate arbitrary business guards, infer substates, or execute commands. It does not yet capture Stories, highlight execution paths, inspect live instances, or provide a browser interface.
 
 ## Compatibility and limits
 
@@ -63,8 +78,9 @@ The tool uses Effect 4 schema metadata and the TypeScript 7.1.0-beta compiler AP
 
 - The module must export a locally declared aggregate class with `decide` and `evolve` tables.
 - Tables can use imported object literals and spreads. Later properties override earlier properties.
-- Handlers can be arrow functions, function expressions, or referenced function declarations.
-- Dynamic keys, method shorthand, factory-generated tables, and handler wrappers such as `Effect.fn(...)` are not supported. Unsupported source produces an error, not guessed code.
+- Handlers can be arrow functions, function expressions, referenced function declarations, `Effect.fn(body)`, `Effect.fn("name")(body)`, `Effect.fnUntraced(body)`, or `Effect.fnUntracedEager(body)`. Namespace imports, named import aliases, and aliases of the Effect function export resolve through compiler symbols. The command view preserves the original wrapper source.
+- State analysis supports generator bodies, `Effect.gen`, and explicit `Effect.succeed` returns. Additional `Effect.fn` result transforms or `self` binding remain unresolved because the callback alone does not determine the result. Zero-argument handlers can return a constant state.
+- Dynamic keys, method shorthand, factory-generated tables, and unrecognized handler wrappers are not supported. Unsupported table or handler source produces an error, not guessed code.
 - The target project must have a TypeScript configuration and dependencies that its runtime loader can resolve.
 - Non-tagged or mixed state schemas have a schema-description fallback rather than invented state tags.
 
@@ -74,4 +90,4 @@ The tool uses Effect 4 schema metadata and the TypeScript 7.1.0-beta compiler AP
 
 Use `vp run check`, `vp test run`, and `vp run build` before submitting changes. The check command runs the antipattern, correctness, Effect-native, style, and strict Effect lint presets through the Effect-tsgo TSRS wrapper. The install-time `prepare` step patches local tools and Oxlint configuration types for direct commands and editors. The CLI uses `effect/cli` for argument validation, help, and completions. `vp pack` produces the CLI under `dist/` and leaves runtime dependencies external. Continue to use `vpx` when the target application imports TypeScript source.
 
-The source has three parts: `cli.ts` handles local input/output, `source.ts` extracts handler source, and `diagram.ts` validates metadata and renders Mermaid. Tests use small synthetic aggregates. Application code, credentials, and generated application diagrams do not belong in this repository.
+`cli.ts` handles local input/output, `source.ts` resolves handler nodes inside the compiler resource lifetime, and `diagram.ts` validates metadata and renders command diagrams. `state-flow.ts` analyzes supported tag-level control flow; `state-diagram.ts` joins decisions to evolution and renders state overviews. Tests use small synthetic aggregates. Application code, credentials, and generated application diagrams do not belong in this repository.

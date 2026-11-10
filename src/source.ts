@@ -2,11 +2,9 @@ import { Array, Effect, Function, Option } from "effect";
 import { API, type Checker, SymbolFlags } from "typescript/sync";
 import {
   type Node,
-  isArrowFunction,
   isAsExpression,
   isClassDeclaration,
   isFunctionDeclaration,
-  isFunctionExpression,
   isIdentifier,
   isObjectLiteralExpression,
   isParenthesizedExpression,
@@ -19,6 +17,7 @@ import {
 } from "typescript/ast";
 import type { HandlerSource } from "./diagram";
 import { DiagramError } from "./diagram-error";
+import { handlerBody } from "./handler";
 
 function referenceInitializer(expression: Node, checker: Checker): Node {
   const location = isPropertyAccessExpression(expression) ? expression.name : expression;
@@ -66,7 +65,7 @@ function resolveExpression(expression: Node, checker: Checker, active = new Set<
   }
 }
 
-function handlerEntry(property: Node, checker: Checker): readonly [string, string] {
+function handlerEntry(property: Node, checker: Checker): readonly [string, Node] {
   if (!isPropertyAssignment(property) && !isShorthandPropertyAssignment(property)) {
     throw new Error(`Unsupported handler member: ${property.getText()}`);
   }
@@ -75,22 +74,18 @@ function handlerEntry(property: Node, checker: Checker): readonly [string, strin
   const key = property.name.getText();
   const value = isPropertyAssignment(property) ? property.initializer : property.name;
   const handler = resolveExpression(value, checker);
-  if (
-    !isArrowFunction(handler) &&
-    !isFunctionExpression(handler) &&
-    !isFunctionDeclaration(handler)
-  ) {
+  if (handlerBody({ node: handler, checker }) === undefined) {
     throw new Error(`Expected a handler function for ${key}, got: ${handler.getText()}`);
   }
-  return [key, handler.getText()];
+  return [key, handler];
 }
 
 function handlerTable(
   expression: Node,
   checker: Checker,
   active = new Set<Node>(),
-): ReadonlyMap<string, string> {
-  const entries = new Map<string, string>();
+): ReadonlyMap<string, Node> {
+  const entries = new Map<string, Node>();
   const table = resolveExpression(expression, checker);
   if (!isObjectLiteralExpression(table))
     throw new Error(`Expected a handler object, got: ${table.getText()}`);
@@ -113,12 +108,19 @@ function handlerTable(
   return entries;
 }
 
-/** Fail closed for executable table factories, dynamic keys, and other unsupported syntax. */
-export const readHandlerSource: {
-  (exportName: string): (path: string) => Effect.Effect<HandlerSource, DiagramError>;
-  (path: string, exportName: string): Effect.Effect<HandlerSource, DiagramError>;
-} = Function.dual(2, (path: string, exportName: string) =>
-  Effect.acquireUseRelease(
+export interface HandlerNodes {
+  readonly decide: ReadonlyMap<string, Node>;
+  readonly evolve: ReadonlyMap<string, Node>;
+}
+
+/** Keep compiler-backed nodes inside the compiler resource lifetime. */
+export function inspectHandlers<A>(request: {
+  readonly path: string;
+  readonly exportName: string;
+  readonly inspect: (handlers: HandlerNodes, checker: Checker) => A;
+}): Effect.Effect<A, DiagramError> {
+  const { path, exportName } = request;
+  return Effect.acquireUseRelease(
     Effect.try({
       try: () => new API(),
       catch: (cause) => DiagramError.make({ message: "Cannot start TypeScript compiler", cause }),
@@ -140,7 +142,7 @@ export const readHandlerSource: {
           );
           if (declaration === undefined)
             throw new Error(`Expected a local class named ${exportName}`);
-          const tables = new Map<string, ReadonlyMap<string, string>>();
+          const tables = new Map<string, ReadonlyMap<string, Node>>();
           const visit = (node: Node): void => {
             if (isPropertyAssignment(node)) {
               const name = node.name.getText();
@@ -157,7 +159,7 @@ export const readHandlerSource: {
           const evolve = tables.get("evolve");
           if (decide === undefined || evolve === undefined)
             throw new Error("Missing handler tables");
-          return { decide, evolve } satisfies HandlerSource;
+          return request.inspect({ decide, evolve }, project.checker);
         },
         catch: (cause) =>
           DiagramError.make({ message: `Cannot extract ${exportName} from ${path}`, cause }),
@@ -166,5 +168,24 @@ export const readHandlerSource: {
       Effect.sync(() => {
         api.close();
       }),
-  ),
+  );
+}
+
+/** Fail closed for executable table factories, dynamic keys, and other unsupported syntax. */
+export const readHandlerSource: {
+  (exportName: string): (path: string) => Effect.Effect<HandlerSource, DiagramError>;
+  (path: string, exportName: string): Effect.Effect<HandlerSource, DiagramError>;
+} = Function.dual(2, (path: string, exportName: string) =>
+  inspectHandlers({
+    path,
+    exportName,
+    inspect: ({ decide, evolve }) => ({
+      decide: new Map(
+        Array.map(Array.fromIterable(decide), ([tag, node]) => [tag, node.getText()] as const),
+      ),
+      evolve: new Map(
+        Array.map(Array.fromIterable(evolve), ([tag, node]) => [tag, node.getText()] as const),
+      ),
+    }),
+  }),
 );

@@ -1,13 +1,16 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Path, Predicate, Schema } from "effect";
-import { Argument, Command } from "effect/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { AggregateContract, renderAggregate } from "./diagram";
 import { DiagramError } from "./diagram-error";
 import { readHandlerSource } from "./source";
+import { readStateDiagram, renderStateDiagram } from "./state-diagram";
 
 const command = Command.make(
   "domain-devtools",
   {
+    view: Flag.Literals("view", ["commands", "states"]).pipe(Flag.withDefault("commands")),
+    includeSelfLoops: Flag.Boolean("include-self-loops").pipe(Flag.withDefault(false)),
     module: Argument.File("aggregate-module", { mustExist: true }).pipe(
       Argument.withDescription(
         "Trusted local TypeScript aggregate module (import executes its code)",
@@ -20,7 +23,7 @@ const command = Command.make(
       Argument.withDescription("Output Markdown file (replaces an existing file)"),
     ),
   },
-  Effect.fn("generateDiagram")(function* ({ module, exportName, output }) {
+  Effect.fn("generateDiagram")(function* ({ module, exportName, output, view, includeSelfLoops }) {
     const path = yield* Path.Path;
     const absolutePath = path.resolve(module);
     const url = yield* path.toFileUrl(absolutePath);
@@ -33,11 +36,17 @@ const command = Command.make(
       return yield* DiagramError.make({ message: `Missing aggregate export: ${exportName}` });
     }
     const aggregate = yield* Schema.decodeUnknownEffect(AggregateContract)(loaded[exportName]);
-    const handlers = yield* readHandlerSource(absolutePath, exportName);
-    const markdown = yield* Effect.try({
-      try: () => renderAggregate(aggregate, handlers),
-      catch: (cause) => DiagramError.make({ message: `Cannot render ${exportName}`, cause }),
-    });
+    let markdown: string;
+    if (view === "states") {
+      const diagram = yield* readStateDiagram({ path: absolutePath, exportName, aggregate });
+      markdown = renderStateDiagram({ diagram, includeSelfLoops });
+    } else {
+      const handlers = yield* readHandlerSource(absolutePath, exportName);
+      markdown = yield* Effect.try({
+        try: () => renderAggregate(aggregate, handlers),
+        catch: (cause) => DiagramError.make({ message: `Cannot render ${exportName}`, cause }),
+      });
+    }
     const fs = yield* FileSystem.FileSystem;
     yield* fs.writeFileString(path.resolve(output), markdown);
   }),
