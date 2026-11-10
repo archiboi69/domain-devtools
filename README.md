@@ -1,6 +1,6 @@
 # Domain Devtools
 
-Generate Mermaid command diagrams and state overviews from Alchemy Domain aggregates.
+Generate Mermaid command diagrams and aggregate state overviews from Alchemy Domain models.
 
 ## Setup
 
@@ -14,28 +14,43 @@ vp install --frozen-lockfile
 
 ## Generate a diagram
 
-**Use trusted local modules only.** The CLI imports the target module and executes its module-level code. It is not a sandbox. Output can contain application source.
+**Use trusted local modules only.** The CLI imports each configured entry and executes its module-level code. It is not a sandbox. Output can contain application source. Entry modules must not write application logs to stdout.
 
-Install your application's dependencies first. Run the CLI from that application's directory. The target must have a TypeScript configuration and export a locally declared aggregate class.
+Install your application's dependencies first. Run the CLI from that application's directory. The application must have a TypeScript configuration. Each entry must export at least one `Domain.Model`. The tool does not start model runtimes or scan the repository for modules.
+
+Create `domain-devtools.json` in the application directory:
+
+```json
+{
+  "entries": ["src/bank.model.ts", "src/billing.model.ts"]
+}
+```
+
+Entry paths are relative to the configuration file. Use `--config <file>` for a different configuration file. Use `--entry <module>` to replace the configured entries for one invocation. An explicit entry path is relative to the current directory.
 
 ```sh
 cd /path/to/your-application
 
-# Command diagrams
-vpx /path/to/domain-devtools/src/cli.ts aggregate commands \
-  src/account/account.aggregate.ts Account /tmp/account-commands.md
+# One command diagram
+vpx /path/to/domain-devtools/src/cli.ts command RequestTransfer > request-transfer.md
 
-# State overview with self-loops
-vpx /path/to/domain-devtools/src/cli.ts aggregate states \
-  src/account/account.aggregate.ts Account /tmp/account-states.md
+# One aggregate state overview with self-loops
+vpx /path/to/domain-devtools/src/cli.ts aggregate states Transfer > transfer-states.md
+
+# Discover available names
+vpx /path/to/domain-devtools/src/cli.ts models
+vpx /path/to/domain-devtools/src/cli.ts commands
+vpx /path/to/domain-devtools/src/cli.ts aggregates
 ```
 
-The positional arguments are the module path, exported class name, and output Markdown path. Relative paths use the current directory. The output directory must exist. If the output file exists, the CLI replaces it.
+Selectors use Domain names: `modelName`, command `tag`, and `aggregateName`. Export aliases do not change these names. Shared aggregate membership does not require a model argument. If different owners have the same name, use `--model <name>` to select the model. Use `--entry` if model names also conflict.
+
+Diagrams and name lists go to stdout. Diagnostics go to stderr. Import, selection, and extraction failures return a nonzero exit status. Partial state analysis returns a report and a warning. Add `--strict` to `aggregate states` to fail without diagram output when analysis gaps remain. A shell redirect can still create or truncate its destination file on failure.
 
 Open the output with tkmp or a Mermaid-compatible Markdown viewer:
 
 ```sh
-tkmp /tmp/account-states.md
+tkmp transfer-states.md
 ```
 
 tkmp can change wide diagrams to a vertical layout. For CLI options, run:
@@ -62,7 +77,7 @@ Arrows are static candidates, not observed transitions or proof of reachability.
 
 The state view does not invent nodes for nested blockers or status fields. An untagged or mixed state schema produces a report instead of a state graph. The command view can still show a schema description.
 
-Neither view executes commands or captures Stories. Unsupported table or handler forms can stop extraction with an error.
+Neither view executes commands or captures Stories. Unsupported table or handler forms can stop extraction with an error. Model types must retain the aggregate tuple. Aggregate members must resolve to named class declarations with literal aggregate names.
 
 ## Development
 
@@ -81,9 +96,8 @@ Use `vp run check` for the TSRS-backed Effect check. The install-time `prepare` 
 For a smoke test without an application, run:
 
 ```sh
-vp run diagram aggregate commands src/diagram.fixture.ts Counter /tmp/counter.md
-vp run diagram aggregate states \
-  src/state-diagram.fixture.ts Lifecycle /tmp/lifecycle.md
+vpx src/cli.ts --entry src/catalog.fixture.ts command Increase > /tmp/counter.md
+vpx src/cli.ts --entry src/catalog.fixture.ts aggregate states Lifecycle > /tmp/lifecycle.md
 ```
 
 If tkmp is available, verify both outputs:

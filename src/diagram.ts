@@ -97,18 +97,23 @@ function node(id: string, text: string): string {
 }
 
 /** Contract edges describe possibilities, not proven control flow or reachability. */
-export const renderAggregate: {
-  (source: HandlerSource): (aggregate: AggregateContract) => string;
-  (aggregate: AggregateContract, source: HandlerSource): string;
-} = Function.dual(2, (aggregate: AggregateContract, source: HandlerSource): string => {
-  const { definition } = aggregate;
-  const tags = stateTags(definition.state.ast);
-  const inputState = tags.length > 0 ? Array.join(tags, "\n") : String(definition.state.ast);
-  const sections = [
-    `# ${aggregate.aggregateName}`,
-    "Declared outcomes; no reachability inferred. Handler code is source, not an execution trace.",
-  ];
-  for (const command of definition.commands) {
+export const renderCommand: {
+  (commandTag: string, source: HandlerSource): (aggregate: AggregateContract) => string;
+  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string;
+} = Function.dual(
+  3,
+  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string => {
+    const { definition } = aggregate;
+    const command = Option.getOrUndefined(
+      Array.findFirst(definition.commands, (command) => command.tag === commandTag),
+    );
+    if (command === undefined) throw new Error(`Unknown command: ${commandTag}`);
+    const tags = stateTags(definition.state.ast);
+    const inputState = tags.length > 0 ? Array.join(tags, "\n") : String(definition.state.ast);
+    const sections = [
+      `# ${aggregate.aggregateName}`,
+      "Declared outcomes; no reachability inferred. Handler code is source, not an execution trace.",
+    ];
     const decision = source.decide.get(command.tag);
     if (decision === undefined) throw new Error(`Missing decide source: ${command.tag}`);
     const lines = [
@@ -156,6 +161,6 @@ export const renderAggregate: {
     }
     lines.push("```");
     sections.push(`## ${command.tag}`, Array.join(lines, "\n"));
-  }
-  return `${Array.join(sections, "\n\n")}\n`;
-});
+    return `${Array.join(sections, "\n\n")}\n`;
+  },
+);

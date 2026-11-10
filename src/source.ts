@@ -2,6 +2,7 @@ import { Array, Effect, Function, Option } from "effect";
 import { API, type Checker, SymbolFlags } from "typescript/sync";
 import {
   type Node,
+  type SourceFile,
   isAsExpression,
   isClassDeclaration,
   isFunctionDeclaration,
@@ -114,12 +115,10 @@ export interface HandlerNodes {
 }
 
 /** Keep compiler-backed nodes inside the compiler resource lifetime. */
-export function inspectHandlers<A>(request: {
-  readonly path: string;
-  readonly exportName: string;
-  readonly inspect: (handlers: HandlerNodes, checker: Checker) => A;
-}): Effect.Effect<A, DiagramError> {
-  const { path, exportName } = request;
+function inspectSource<A>(
+  path: string,
+  inspect: (file: SourceFile, checker: Checker) => A,
+): Effect.Effect<A, DiagramError> {
   return Effect.acquireUseRelease(
     Effect.try({
       try: () => new API(),
@@ -133,42 +132,97 @@ export function inspectHandlers<A>(request: {
           const file = project?.program.getSourceFile(path);
           if (file === undefined || project === undefined)
             throw new Error(`TypeScript cannot load ${path}`);
-          const declaration = Option.getOrUndefined(
-            Array.findFirst(
-              file.statements,
-              (statement) =>
-                isClassDeclaration(statement) && statement.name?.getText() === exportName,
-            ),
-          );
-          if (declaration === undefined)
-            throw new Error(`Expected a local class named ${exportName}`);
-          const tables = new Map<string, ReadonlyMap<string, Node>>();
-          const visit = (node: Node): void => {
-            if (isPropertyAssignment(node)) {
-              const name = node.name.getText();
-              if (name === "decide" || name === "evolve") {
-                if (tables.has(name)) throw new Error(`Ambiguous ${name} table`);
-                tables.set(name, handlerTable(node.initializer, project.checker));
-                return;
-              }
-            }
-            node.forEachChild(visit);
-          };
-          visit(declaration);
-          const decide = tables.get("decide");
-          const evolve = tables.get("evolve");
-          if (decide === undefined || evolve === undefined)
-            throw new Error("Missing handler tables");
-          return request.inspect({ decide, evolve }, project.checker);
+          return inspect(file, project.checker);
         },
-        catch: (cause) =>
-          DiagramError.make({ message: `Cannot extract ${exportName} from ${path}`, cause }),
+        catch: (cause) => DiagramError.make({ message: `Cannot inspect source: ${path}`, cause }),
       }),
     (api) =>
       Effect.sync(() => {
         api.close();
       }),
   );
+}
+
+export function inspectHandlers<A>(request: {
+  readonly path: string;
+  readonly exportName: string;
+  readonly inspect: (handlers: HandlerNodes, checker: Checker) => A;
+}): Effect.Effect<A, DiagramError> {
+  const { path, exportName } = request;
+  return inspectSource(path, (file, checker) => {
+    const declaration = Option.getOrUndefined(
+      Array.findFirst(
+        file.statements,
+        (statement) => isClassDeclaration(statement) && statement.name?.getText() === exportName,
+      ),
+    );
+    if (declaration === undefined) throw new Error(`Expected a local class named ${exportName}`);
+    const tables = new Map<string, ReadonlyMap<string, Node>>();
+    const visit = (node: Node): void => {
+      if (isPropertyAssignment(node)) {
+        const name = node.name.getText();
+        if (name === "decide" || name === "evolve") {
+          if (tables.has(name)) throw new Error(`Ambiguous ${name} table`);
+          tables.set(name, handlerTable(node.initializer, checker));
+          return;
+        }
+      }
+      node.forEachChild(visit);
+    };
+    visit(declaration);
+    const decide = tables.get("decide");
+    const evolve = tables.get("evolve");
+    if (decide === undefined || evolve === undefined) throw new Error("Missing handler tables");
+    return request.inspect({ decide, evolve }, checker);
+  }).pipe(
+    Effect.mapError((cause) =>
+      DiagramError.make({
+        message: `Cannot extract ${exportName} from ${path}`,
+        cause: cause.cause,
+      }),
+    ),
+  );
+}
+
+/** Resolve a model member through its static tuple, including import and export aliases. */
+export function readAggregateLocation(request: {
+  readonly path: string;
+  readonly exportName: string;
+  readonly index: number;
+  readonly aggregateName: string;
+}): Effect.Effect<{ readonly path: string; readonly exportName: string }, DiagramError> {
+  return inspectSource(request.path, (file, checker) => {
+    const module = checker.getSymbolAtLocation(file);
+    const symbol =
+      module === undefined
+        ? undefined
+        : Option.getOrUndefined(
+            Array.findFirst(
+              checker.getExportsOfModule(module),
+              (symbol) => symbol.name === request.exportName,
+            ),
+          );
+    if (symbol === undefined) throw new Error(`Missing model export: ${request.exportName}`);
+    const model = checker.getTypeOfSymbolAtLocation(symbol, file);
+    const aggregates = checker.getTypeOfPropertyOfType(model, "aggregates");
+    const member = aggregates?.getProperty(String(request.index));
+    if (member === undefined)
+      throw new Error("Model aggregates must retain their static tuple type");
+    const aggregate = checker.getTypeOfSymbolAtLocation(member, file);
+    const name = checker.getTypeOfPropertyOfType(aggregate, "aggregateName");
+    if (name === undefined || !name.isStringLiteralType() || name.value !== request.aggregateName)
+      throw new Error(
+        `Static aggregate membership does not match runtime: ${request.aggregateName}`,
+      );
+    const declaration = aggregate.getSymbol()?.valueDeclaration?.resolve();
+    if (
+      declaration === undefined ||
+      !isClassDeclaration(declaration) ||
+      declaration.name === undefined
+    )
+      throw new Error(`Expected a named aggregate class: ${request.aggregateName}`);
+    return { path: declaration.getSourceFile().fileName, exportName: declaration.name.getText() };
+  });
 }
 
 /** Fail closed for executable table factories, dynamic keys, and other unsupported syntax. */

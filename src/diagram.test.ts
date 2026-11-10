@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { fileURLToPath } from "node:url";
-import { AggregateContract, renderAggregate, stateTags } from "./diagram";
+import { AggregateContract, renderCommand, stateTags } from "./diagram";
 import { Counter } from "./diagram.fixture";
 import { readHandlerSource } from "./source";
 
@@ -12,7 +12,7 @@ describe("aggregate diagrams", () => {
     Effect.gen(function* () {
       const aggregate = yield* Schema.decodeUnknownEffect(AggregateContract)(Counter);
       const source = yield* readHandlerSource(fixture, "Counter");
-      const markdown = renderAggregate(aggregate, source);
+      const markdown = renderCommand(aggregate, "Increase", source);
       expect(markdown).toContain("INPUT STATE<br/>Empty<br/>Counting");
       expect(markdown).toContain("COMMAND: Increase<br/>amount");
       expect(markdown).toContain("EVENT: Increased");
@@ -57,11 +57,11 @@ describe("aggregate diagrams", () => {
 
   it("fails instead of inventing missing handler source", () => {
     const aggregate = Schema.decodeUnknownSync(AggregateContract)(Counter);
-    expect(() => renderAggregate(aggregate, { decide: new Map(), evolve: new Map() })).toThrow(
-      "Missing decide source: Increase",
-    );
     expect(() =>
-      renderAggregate(aggregate, {
+      renderCommand(aggregate, "Increase", { decide: new Map(), evolve: new Map() }),
+    ).toThrow("Missing decide source: Increase");
+    expect(() =>
+      renderCommand(aggregate, "Increase", {
         decide: new Map([["Increase", '() => "<br/> #quot;"']]),
         evolve: new Map(),
       }),
@@ -74,7 +74,7 @@ describe("aggregate diagrams", () => {
       decide: new Map([["Increase", '() => "<br/> #quot;"']]),
       evolve: new Map([["Increased", "(state) => state"]]),
     };
-    const markdown = renderAggregate(aggregate, source);
+    const markdown = renderCommand(aggregate, "Increase", source);
     expect(markdown).toContain("#60;br/#62; #35;quot;");
     expect(markdown).toContain("#quot;");
   });
