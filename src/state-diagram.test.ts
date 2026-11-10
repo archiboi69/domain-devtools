@@ -24,13 +24,13 @@ describe("static state diagrams", () => {
       expect(diagram.unresolved).toEqual([
         "SelectNested: State alias reassigned: state = command.child",
       ]);
-      const markdown = renderStateDiagram({ diagram, includeSelfLoops: false });
-      expect(markdown).toContain("s0 --> s1: Resumed");
-      expect(markdown).toContain("s0 --> s1: Activated");
-      expect(markdown).not.toContain("s2 --> s2");
+      const markdown = renderStateDiagram(diagram);
+      expect(markdown).toContain("s0 --> s1: 1. Resumed");
+      expect(markdown).toContain("s0 --> s1: 2. Activated");
+      expect(markdown).toContain("s2 --> s2: 4. Noted");
       expect(markdown).not.toContain('state "Blocked"');
-      expect(markdown).toContain("| Done | Noted | Done | Finish |");
-      expect(renderStateDiagram({ diagram, includeSelfLoops: true })).toContain("s2 --> s2: Noted");
+      expect(markdown).toContain("| From | Command | Event | To |");
+      expect(markdown).toContain("| Done | Finish | 4. Noted | Done |");
     }).pipe(Effect.runPromise));
 
   it("leaves unsupported computed destinations unresolved instead of inventing an edge", () =>
@@ -49,9 +49,7 @@ describe("static state diagrams", () => {
       const diagram = yield* readStateDiagram({ path, exportName: "Untagged", aggregate });
       expect(diagram.states).toEqual([]);
       expect(diagram.transitions).toEqual([]);
-      expect(renderStateDiagram({ diagram, includeSelfLoops: false })).not.toContain(
-        "stateDiagram-v2",
-      );
+      expect(renderStateDiagram(diagram)).not.toContain("stateDiagram-v2");
       expect(diagram.unresolved).toContain(
         "State schema has no complete top-level _tag union; no state nodes or status-based substates invented.",
       );

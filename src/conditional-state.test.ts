@@ -19,9 +19,12 @@ describe("conditional state tags", () => {
         { from: "Running", event: "Noted", to: "Running", command: "Route" },
       ]);
       expect(diagram.unresolved).toEqual([]);
-      const markdown = renderStateDiagram({ diagram, includeSelfLoops: true });
-      expect(markdown).toContain("s0 --> s1: Routed");
-      expect(markdown).toContain("s0 --> s2: Routed");
+      const markdown = renderStateDiagram(diagram);
+      expect(markdown).toContain("s0 --> s1: 1. Routed");
+      expect(markdown).toContain("s0 --> s2: 1. Routed");
+      expect(markdown).toContain("| Idle | Route | 1. Routed | Waiting |");
+      expect(markdown).toContain("| Idle | Route | 1. Routed | Running |");
+      expect(markdown).toContain("| Waiting | Route | 2. Noted | Waiting |");
     }).pipe(Effect.runPromise));
 
   it("retains known branches while reporting unknown destinations", () =>

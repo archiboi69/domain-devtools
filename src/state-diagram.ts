@@ -268,14 +268,16 @@ function escape(value: string): string {
 }
 
 /** Event labels only. Unknown paths remain outside the graph, never fake state nodes. */
-export function renderStateDiagram(request: {
-  readonly diagram: StateDiagram;
-  readonly includeSelfLoops: boolean;
-}): string {
-  const { diagram, includeSelfLoops } = request;
+export function renderStateDiagram(diagram: StateDiagram): string {
+  const eventNumbers = new Map<string, number>();
+  for (const { event } of diagram.transitions) {
+    if (!eventNumbers.has(event)) eventNumbers.set(event, eventNumbers.size + 1);
+  }
+  const eventLabel = (event: string) => `${eventNumbers.get(event)}. ${event}`;
   const lines = [
     `# ${diagram.name} — static state overview`,
     "Static candidates from tag guards, returned event arrays, and evolution source. Other guards remain unevaluated; this is not proof of reachability or complete coverage.",
+    "Event numbers identify event types within this aggregate, not execution order.",
   ];
   if (diagram.states.length > 0) {
     const ids = new Map(Array.map(diagram.states, (tag, index) => [tag, `s${index}`] as const));
@@ -284,24 +286,21 @@ export function renderStateDiagram(request: {
     if (diagram.initial !== undefined) lines.push(`    [*] --> ${ids.get(diagram.initial)}`);
     const edges = new Set<string>();
     for (const transition of diagram.transitions) {
-      if (!includeSelfLoops && transition.from === transition.to) continue;
       edges.add(
-        `    ${ids.get(transition.from)} --> ${ids.get(transition.to)}: ${escape(transition.event)}`,
+        `    ${ids.get(transition.from)} --> ${ids.get(transition.to)}: ${escape(eventLabel(transition.event))}`,
       );
     }
     lines.push(...edges, "```");
   }
   lines.push(
     "## Transition evidence",
-    "| From | Event | To | Command |",
+    "| From | Command | Event | To |",
     "| --- | --- | --- | --- |",
   );
   for (const transition of diagram.transitions)
     lines.push(
-      `| ${transition.from} | ${transition.event} | ${transition.to} | ${transition.command} |`,
+      `| ${transition.from} | ${transition.command} | ${eventLabel(transition.event)} | ${transition.to} |`,
     );
-  if (!includeSelfLoops)
-    lines.push("Same-state events remain in the table but are omitted from the graph.");
   if (diagram.unresolved.length > 0) {
     lines.push("## Unresolved paths");
     for (const reason of diagram.unresolved) lines.push(`- ${Str.replaceAll("\n", " ")(reason)}`);

@@ -1,9 +1,9 @@
 # Domain Devtools
 
-Read README.md for setup, CLI usage, and supported source shapes. Use TypeScript and Effect. Vite+ owns installation, checks, tests, and builds.
+Before you use the CLI, read [setup and usage](README.md#setup). Before you change analysis or output, read [diagram interpretation and limits](README.md#read-the-output). Before you complete a change, run the [development checks](README.md#development).
 
-Keep runtime contracts, source extraction, and execution evidence distinct. The generic diagrams show declarations, not inferred reachability. Unsupported source must fail explicitly. Preserve source text rather than paraphrasing business rules.
+## Contribution rules
 
-Keep tests application-independent. Changes to symbol resolution need cases for imports and override order. Changes to rendering need assertions for semantic labels as well as color. Do not include real application source, credentials, or generated application diagrams in commits.
-
-Run `vp run check`, `vp test run`, and `vp run build` before completing a change. Use `vp run diagram src/diagram.fixture.ts Counter /tmp/counter.md` for a CLI smoke test. If tkmp is available, verify the output with `tkmp bench /tmp/counter.md`.
+- Derive domain facts from Alchemy.Domain contracts and generic TypeScript patterns. Keep application names, helper names, and business rules out of the analyzer.
+- Keep declared contracts, static candidates, and execution evidence distinct. Preserve original handler source. Report extraction failures as errors and partial analysis as explicit gaps.
+- Use synthetic fixtures for regression tests. Cover imports and override order for symbol-resolution changes. Verify labels as well as colors for diagram changes. Keep application source, credentials, and generated application diagrams out of commits.
