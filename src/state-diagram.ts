@@ -17,6 +17,7 @@ import { type AggregateContract, stateTags } from "./diagram";
 import { inspectHandlers, type HandlerNodes } from "./source";
 import { literalTag, returnPaths, unwrap, type ReturnPath } from "./state-flow";
 import type { DiagramError } from "./diagram-error";
+import { opticUpdate } from "./optic";
 
 export interface StateTransition {
   readonly from: string;
@@ -46,8 +47,32 @@ function destinations(
   path: ReturnPath,
   from: string,
   checker: Checker,
+  states: readonly string[],
+  depth = 0,
 ): readonly (string | undefined)[] {
+  if (depth > 12) return [undefined];
   const node = unwrap(path.expression);
+  const update = opticUpdate({ expression: node, aliases: path.aliases, from, checker });
+  if (update?.kind === "preserve") return [from];
+  if (update?.kind === "replace")
+    return destinations({ ...path, expression: update.value }, from, checker, states, depth + 1);
+  if (update?.kind === "modify") {
+    let incomplete = false;
+    const results = returnPaths({
+      handler: update.callback,
+      tag: from,
+      checker,
+      stateTags: states,
+      constants: new Map([["_tag", from]]),
+      report: () => {
+        incomplete = true;
+      },
+    });
+    return [
+      ...Array.flatMap(results, (result) => destinations(result, from, checker, states, depth + 1)),
+      ...(incomplete ? [undefined] : []),
+    ];
+  }
   if (isIdentifier(node) && path.aliases.has(node.getText())) return [from];
   if (!isObjectLiteralExpression(node)) return [literalTag({ checker, node })];
   let tags: readonly (string | undefined)[] = [undefined];
@@ -190,7 +215,7 @@ function analyze(
               },
             });
             for (const result of results) {
-              for (const to of destinations(result, before, checker)) {
+              for (const to of destinations(result, before, checker, states)) {
                 if (to === undefined || !Array.contains(states, to)) {
                   unresolved.add(
                     `${event}: unresolved destination: ${result.expression.getText()}`,
