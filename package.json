@@ -1,0 +1,32 @@
+{
+  "name": "domain-devtools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Inspect Alchemy Domain aggregate contracts and generate source-backed Mermaid diagrams.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/archiboi69/domain-devtools.git"
+  },
+  "type": "module",
+  "scripts": {
+    "diagram": "vpx src/cli.ts",
+    "check": "effect-tsgo --tsrs-lint vp check",
+    "prepare": "effect-tsgo patch --oxlint",
+    "test": "vp test run",
+    "build": "vp pack"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.1.2",
+    "effect": "4.1.2",
+    "typescript": "7.1.0-beta"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "0.67.1",
+    "@types/node": "26.5.0",
+    "vite-plus": "1.4.0"
+  },
+  "engines": {
+    "node": ">=26.8.1 <27"
+  },
+  "packageManager": "pnpm@12.8.2"
+}
