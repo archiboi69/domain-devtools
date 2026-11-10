@@ -96,6 +96,12 @@ function node(id: string, text: string): string {
   return `    ${id}["${label(text)}"]`;
 }
 
+function codeBlock(source: string): string {
+  let fence = "```";
+  while (Str.includes(fence)(source)) fence += "`";
+  return `${fence}typescript\n${source}\n${fence}`;
+}
+
 /** Contract edges describe possibilities, not proven control flow or reachability. */
 export const renderCommand: {
   (commandTag: string, source: HandlerSource): (aggregate: AggregateContract) => string;
@@ -109,13 +115,15 @@ export const renderCommand: {
     );
     if (command === undefined) throw new Error(`Unknown command: ${commandTag}`);
     const tags = stateTags(definition.state.ast);
-    const inputState = tags.length > 0 ? Array.join(tags, "\n") : String(definition.state.ast);
+    const stateDescription =
+      tags.length > 0 ? Array.join(tags, "\n") : String(definition.state.ast);
     const sections = [
       `# ${aggregate.aggregateName}`,
       "Declared outcomes; no reachability inferred. Handler code is source, not an execution trace.",
     ];
     const decision = source.decide.get(command.tag);
     if (decision === undefined) throw new Error(`Missing decide source: ${command.tag}`);
+    const handlers = [`### decide — ${command.tag}`, codeBlock(decision)];
     const lines = [
       "```mermaid",
       "flowchart LR",
@@ -123,7 +131,7 @@ export const renderCommand: {
       "    classDef event fill:#ffedd5,stroke:#ea580c,color:#431407",
       "    classDef rejection fill:#fee2e2,stroke:#dc2626,color:#450a0a",
       "    class C command",
-      node("B", `INPUT STATE\n${inputState}`),
+      node("B", `INPUT STATE\n${stateDescription}`),
       node(
         "C",
         `COMMAND: ${command.tag}\n${Function.pipe(
@@ -132,7 +140,7 @@ export const renderCommand: {
           Array.join("\n"),
         )}`,
       ),
-      node("D", `decide\n${decision}`),
+      '    D{"decide"}',
       "    B --> D",
       "    C --> D",
       node("N", "No events\nState unchanged"),
@@ -141,11 +149,12 @@ export const renderCommand: {
     for (const [index, event] of command.events.entries()) {
       const evolution = source.evolve.get(event.tag);
       if (evolution === undefined) throw new Error(`Missing evolve source: ${event.tag}`);
+      handlers.push(`### evolve — ${event.tag}`, codeBlock(evolution));
       lines.push(
         node(`E${index}`, `EVENT: ${event.tag}`),
         `    class E${index} event`,
-        node(`V${index}`, `evolve\n${evolution}`),
-        node(`S${index}`, "Resulting state"),
+        `    V${index}[["${label(`evolve\n${event.tag}`)}"]]`,
+        node(`S${index}`, `OUTPUT STATE\n${stateDescription}`),
         `    D -.->|declared event| E${index}`,
         `    E${index} --> V${index}`,
         `    B -->|previous state| V${index}`,
@@ -160,7 +169,7 @@ export const renderCommand: {
       );
     }
     lines.push("```");
-    sections.push(`## ${command.tag}`, Array.join(lines, "\n"));
+    sections.push(`## ${command.tag}`, Array.join(lines, "\n"), ...handlers);
     return `${Array.join(sections, "\n\n")}\n`;
   },
 );

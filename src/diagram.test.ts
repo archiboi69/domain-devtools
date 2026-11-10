@@ -21,13 +21,22 @@ describe("aggregate diagrams", () => {
       expect(markdown).toContain("class E0 event");
       expect(markdown).toContain("class R0 rejection");
       expect(markdown).toContain("declared rejection");
-      expect(markdown).toContain("Resulting state");
+      expect(markdown).toContain("OUTPUT STATE<br/>Empty<br/>Counting");
+      expect(markdown).not.toContain("Resulting state");
       expect(markdown).toContain("accepted no-op contract");
       expect(markdown).not.toContain("return []");
       expect(markdown).not.toContain("Provisioning");
       expect(source.decide.get("Increase")).toContain("command: Increase");
       expect(source.evolve.get("Increased")).toContain("state.total");
       expect(markdown).toContain("B -->|previous state| V0");
+      expect(markdown).toContain('D{"decide"}');
+      expect(markdown).toContain('V0[["evolve<br/>Increased"]]');
+      expect(markdown).toContain(
+        `\`\`\`\n\n### decide — Increase\n\n\`\`\`typescript\n${source.decide.get("Increase")}\n\`\`\``,
+      );
+      expect(markdown).toContain(
+        `### evolve — Increased\n\n\`\`\`typescript\n${source.evolve.get("Increased")}\n\`\`\``,
+      );
     }).pipe(Effect.runPromise));
 
   it("resolves imported spreads, overrides, shorthand functions, and property references", () =>
@@ -68,14 +77,24 @@ describe("aggregate diagrams", () => {
     ).toThrow("Missing evolve source: Increased");
   });
 
-  it("escapes labels instead of treating handler contents as Mermaid markup", () => {
+  it("escapes diagram labels but preserves source and embedded Markdown fences in code blocks", () => {
     const aggregate = Schema.decodeUnknownSync(AggregateContract)(Counter);
+    const decision = '() => "<br/> #quot;" /*\n```\n*/';
     const source = {
-      decide: new Map([["Increase", '() => "<br/> #quot;"']]),
+      decide: new Map([["Increase", decision]]),
       evolve: new Map([["Increased", "(state) => state"]]),
     };
-    const markdown = renderCommand(aggregate, "Increase", source);
-    expect(markdown).toContain("#60;br/#62; #35;quot;");
-    expect(markdown).toContain("#quot;");
+    const markdown = renderCommand(
+      {
+        ...aggregate,
+        definition: { ...aggregate.definition, state: Schema.TaggedStruct("<Ready>", {}) },
+      },
+      "Increase",
+      source,
+    );
+    expect(markdown).toContain("INPUT STATE<br/>#60;Ready#62;");
+    expect(markdown).toContain("OUTPUT STATE<br/>#60;Ready#62;");
+    expect(markdown).toContain(`\`\`\`\`typescript\n${decision}\n\`\`\`\``);
+    expect(markdown).toContain("```typescript\n(state) => state\n```");
   });
 });

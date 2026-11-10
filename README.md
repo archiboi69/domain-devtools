@@ -65,9 +65,9 @@ Inspect the output before you share it.
 
 ### Command diagrams
 
-Each diagram shows a command, its handler source, and its declared events and rejections. Commands are blue, events are orange, and rejections are red. Text labels also identify each type.
+Each diagram shows a command and its declared events and rejections. A diamond marks `decide`. Subroutine boxes mark `evolve`. Original handler source appears in TypeScript code blocks below the diagram. Commands are blue, events are orange, and rejections are red. Text labels also identify each type.
 
-Declared outcomes are contract possibilities, not proven paths. The accepted no-op edge does not prove that the handler returns no events. The command view leaves the output state unspecified.
+Declared outcomes are contract possibilities, not proven paths. The accepted no-op edge does not prove that the handler returns no events. INPUT STATE and OUTPUT STATE list the declared aggregate states, or a schema description for an untagged state. These lists do not identify event-specific destinations.
 
 ### State overviews
 
