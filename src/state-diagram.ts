@@ -13,8 +13,8 @@ import {
   isNewExpression,
   isYieldExpression,
 } from "typescript/ast";
-import { type AggregateContract, stateTags } from "./diagram";
-import { inspectHandlers, type HandlerNodes } from "./source";
+import { type AggregateContract, type CommandDiagramSource, stateTags } from "./diagram";
+import { handlerSource, inspectHandlers, type HandlerNodes } from "./source";
 import { literalTag, returnPaths, unwrap, type ReturnPath } from "./state-flow";
 import type { DiagramError } from "./diagram-error";
 import { opticUpdate } from "./optic";
@@ -140,7 +140,8 @@ function analyze(
   aggregate: AggregateContract,
   handlers: HandlerNodes,
   checker: Checker,
-): StateDiagram {
+): StateDiagram & { readonly inputs: readonly string[] } {
+  const inputs = new Set<string>();
   const states = stateTags(aggregate.definition.state.ast);
   const unresolved = new Set<string>();
   const transitions = new Map<string, StateTransition>();
@@ -155,7 +156,6 @@ function analyze(
     unresolved.add(
       "State schema has no complete top-level _tag union; no state nodes or status-based substates invented.",
     );
-  if (initial === undefined) unresolved.add("Initial state has no declared top-level state tag.");
   for (const command of aggregate.definition.commands) {
     const handler = handlers.decide.get(command.tag);
     if (handler === undefined) {
@@ -191,6 +191,7 @@ function analyze(
             );
           continue;
         }
+        if (expression.elements.length > 0) inputs.add(from);
         let current: readonly string[] = [from];
         for (const eventExpression of expression.elements) {
           const event = literalTag({ checker, node: eventExpression });
@@ -243,6 +244,7 @@ function analyze(
   }
   return {
     name: aggregate.aggregateName,
+    inputs: Array.fromIterable(inputs),
     states,
     initial,
     transitions: Array.fromIterable(transitions.values()),
@@ -257,7 +259,53 @@ export function readStateDiagram(request: {
 }): Effect.Effect<StateDiagram, DiagramError> {
   return inspectHandlers({
     ...request,
-    inspect: (handlers, checker) => analyze(request.aggregate, handlers, checker),
+    inspect: (handlers, checker) => {
+      const diagram = analyze(request.aggregate, handlers, checker);
+      return diagram.initial === undefined
+        ? {
+            ...diagram,
+            unresolved: [
+              ...diagram.unresolved,
+              "Initial state has no declared top-level state tag.",
+            ],
+          }
+        : diagram;
+    },
+  });
+}
+
+/** Analyze each selected command independently, with one compiler session and shared source. */
+export function readCommandDiagramSource(request: {
+  readonly path: string;
+  readonly exportName: string;
+  readonly aggregate: AggregateContract;
+  readonly commandTag?: string;
+}): Effect.Effect<CommandDiagramSource, DiagramError> {
+  return inspectHandlers({
+    ...request,
+    inspect: (handlers, checker) => ({
+      handlers: handlerSource(handlers),
+      states: new Map(
+        Array.map(
+          Array.filter(
+            request.aggregate.definition.commands,
+            (command) => request.commandTag === undefined || command.tag === request.commandTag,
+          ),
+          (command) =>
+            [
+              command.tag,
+              analyze(
+                {
+                  ...request.aggregate,
+                  definition: { ...request.aggregate.definition, commands: [command] },
+                },
+                handlers,
+                checker,
+              ),
+            ] as const,
+        ),
+      ),
+    }),
   });
 }
 

@@ -70,7 +70,9 @@ Inspect the output before you share it.
 
 `command` renders one command. `aggregate commands` renders every command in declaration order, with one aggregate heading and one section per command. Each diagram shows a command and its declared events and rejections. A diamond marks `decide`. Subroutine boxes mark `evolve`. Original handler source appears in TypeScript code blocks below the diagram. Commands are blue, events are green, and rejections are red. Text labels also identify each type.
 
-Declared outcomes are contract possibilities, not proven paths. The accepted no-op edge does not prove that the handler returns no events. INPUT STATE and OUTPUT STATE list the declared aggregate states, or Effect schema notation for an untagged state. These lists do not identify event-specific destinations.
+Event and rejection edges show contract possibilities, not proven paths. The `no-op` edge does not prove that the handler returns no events. For tagged schemas, `input state` lists event-producing static candidates. Each event's `output state` lists its inferred destinations for that command. Intermediate states between events do not become command inputs. These lists do not describe all states where a command can reject or return no events.
+
+Command diagrams use the same transition analyzer as state overviews. State boxes show known candidates only. Incomplete command analysis reports gaps below the diagram, not inside state boxes. Missing inferred transitions do not prove impossibility. Untagged or mixed schemas retain Effect schema notation instead of named state candidates.
 
 ### State overviews
 

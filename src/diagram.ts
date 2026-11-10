@@ -9,6 +9,7 @@ import {
   SchemaRepresentation,
   String as Str,
 } from "effect";
+import type { StateTransition } from "./state-diagram";
 
 // Validate callable metadata only; this tool never invokes business handlers.
 const Handler = Schema.declare<() => void>((value): value is () => void =>
@@ -62,6 +63,17 @@ export type AggregateContract = typeof AggregateContract.Type;
 export interface HandlerSource {
   readonly decide: ReadonlyMap<string, string>;
   readonly evolve: ReadonlyMap<string, string>;
+}
+
+export interface CommandStateAnalysis {
+  readonly inputs: readonly string[];
+  readonly transitions: readonly StateTransition[];
+  readonly unresolved: readonly string[];
+}
+
+export interface CommandDiagramSource {
+  readonly handlers: HandlerSource;
+  readonly states: ReadonlyMap<string, CommandStateAnalysis>;
 }
 
 export function stateTags(ast: SchemaAST.AST): readonly string[] {
@@ -130,12 +142,19 @@ function codeBlock(source: string): string {
 function renderCommands(
   aggregate: AggregateContract,
   commands: AggregateContract["definition"]["commands"],
-  source: HandlerSource,
+  source: CommandDiagramSource,
 ): string {
-  const stateDescription = describeState(aggregate.definition.state);
+  const tagged = stateTags(Schema.toType(aggregate.definition.state).ast).length > 0;
+  const schemaDescription = tagged ? undefined : describeState(aggregate.definition.state);
   const sections = [`# ${aggregate.aggregateName}`];
   for (const command of commands) {
-    const decision = source.decide.get(command.tag);
+    const analysis = source.states.get(command.tag);
+    if (analysis === undefined) throw new Error(`Missing state analysis: ${command.tag}`);
+    const candidates = (states: readonly string[]): string => {
+      if (schemaDescription !== undefined) return schemaDescription;
+      return Array.join(Array.dedupe(states), "\n");
+    };
+    const decision = source.handlers.decide.get(command.tag);
     if (decision === undefined) throw new Error(`Missing decide source: ${command.tag}`);
     const handlers = [`### decide — ${command.tag}`, codeBlock(decision)];
     const lines = [
@@ -144,7 +163,7 @@ function renderCommands(
       "    classDef command fill:#dbeafe,stroke:#2563eb,color:#172554",
       "    classDef event fill:#dcfce7,stroke:#16a34a,color:#14532d",
       "    classDef rejection fill:#fee2e2,stroke:#dc2626,color:#450a0a",
-      node("B", `INPUT STATE\n${stateDescription}`),
+      node("B", `input state\n${candidates(analysis.inputs)}`),
       node(
         "C",
         `COMMAND: ${command.tag}\n${Function.pipe(
@@ -158,21 +177,29 @@ function renderCommands(
       "    B --> D",
       "    C --> D",
       node("N", "No events"),
-      '    D -.->|"accepted no-op contract"| N',
+      '    D -.->|"no-op"| N',
     ];
     for (const [index, event] of command.events.entries()) {
-      const evolution = source.evolve.get(event.tag);
+      const evolution = source.handlers.evolve.get(event.tag);
       if (evolution === undefined) throw new Error(`Missing evolve source: ${event.tag}`);
       handlers.push(`### evolve — ${event.tag}`, codeBlock(evolution));
       lines.push(
         node(`E${index}`, `EVENT: ${event.tag}`),
         `    class E${index} event`,
         `    V${index}[["${label(`evolve\n${event.tag}`)}"]]`,
-        node(`S${index}`, `OUTPUT STATE\n${stateDescription}`),
+        node(
+          `S${index}`,
+          `output state\n${candidates(
+            Array.map(
+              Array.filter(analysis.transitions, (transition) => transition.event === event.tag),
+              (transition) => transition.to,
+            ),
+          )}`,
+        ),
         `    D -.->|emits| E${index}`,
         `    E${index} --> V${index}`,
-        `    B -->|previous state| V${index}`,
-        `    V${index} --> S${index}`,
+        `    B -->|from| V${index}`,
+        `    V${index} -->|to| S${index}`,
       );
     }
     for (const [index, rejection] of command.rejects.entries()) {
@@ -183,17 +210,27 @@ function renderCommands(
       );
     }
     lines.push("```");
-    sections.push(`## ${command.tag}`, Array.join(lines, "\n"), ...handlers);
+    sections.push(`## ${command.tag}`, Array.join(lines, "\n"));
+    if (tagged && analysis.unresolved.length > 0) {
+      sections.push(
+        "### Analysis gaps",
+        Array.join(
+          Array.map(analysis.unresolved, (reason) => `- ${reason}`),
+          "\n",
+        ),
+      );
+    }
+    sections.push(...handlers);
   }
   return `${Array.join(sections, "\n\n")}\n`;
 }
 
 export const renderCommand: {
-  (commandTag: string, source: HandlerSource): (aggregate: AggregateContract) => string;
-  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string;
+  (commandTag: string, source: CommandDiagramSource): (aggregate: AggregateContract) => string;
+  (aggregate: AggregateContract, commandTag: string, source: CommandDiagramSource): string;
 } = Function.dual(
   3,
-  (aggregate: AggregateContract, commandTag: string, source: HandlerSource): string => {
+  (aggregate: AggregateContract, commandTag: string, source: CommandDiagramSource): string => {
     const command = Option.getOrUndefined(
       Array.findFirst(aggregate.definition.commands, (command) => command.tag === commandTag),
     );
@@ -203,8 +240,8 @@ export const renderCommand: {
 );
 
 export const renderAggregateCommands: {
-  (source: HandlerSource): (aggregate: AggregateContract) => string;
-  (aggregate: AggregateContract, source: HandlerSource): string;
-} = Function.dual(2, (aggregate: AggregateContract, source: HandlerSource): string =>
+  (source: CommandDiagramSource): (aggregate: AggregateContract) => string;
+  (aggregate: AggregateContract, source: CommandDiagramSource): string;
+} = Function.dual(2, (aggregate: AggregateContract, source: CommandDiagramSource): string =>
   renderCommands(aggregate, aggregate.definition.commands, source),
 );

@@ -82,6 +82,21 @@ export class Lifecycle {
   };
 }
 
+export class Sequence {
+  static readonly aggregateName = "Sequence";
+  static readonly definition = {
+    ...Lifecycle.definition,
+    commands: [
+      { tag: "Run", fields: {}, events: [{ tag: "Activated" }, { tag: "Completed" }], rejects: [] },
+    ],
+    decide: {
+      Run: (state: State) =>
+        state._tag === "Idle" ? [Activated.make({}), Completed.make({})] : [],
+    },
+    evolve: Lifecycle.definition.evolve,
+  };
+}
+
 const tagKey = "_tag";
 export class ComputedEvolution {
   static readonly aggregateName = "ComputedEvolution";

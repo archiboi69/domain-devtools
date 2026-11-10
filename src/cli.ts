@@ -4,8 +4,8 @@ import { Argument, CliError, CliOutput, Command, Flag } from "effect/cli";
 import { filterModels, loadCatalog, selectAggregate } from "./catalog";
 import { renderAggregateCommands, renderCommand } from "./diagram";
 import { DiagramError } from "./diagram-error";
-import { readAggregateLocation, readHandlerSource } from "./source";
-import { readStateDiagram, renderStateDiagram } from "./state-diagram";
+import { readAggregateLocation } from "./source";
+import { readCommandDiagramSource, readStateDiagram, renderStateDiagram } from "./state-diagram";
 
 const root = Command.make("domain-devtools").pipe(
   Command.withDescription("Generate source-backed Alchemy Domain diagrams on stdout"),
@@ -50,7 +50,7 @@ const command = Command.make(
   { name: Argument.String("command-tag") },
   Effect.fn(function* ({ name }) {
     const source = yield* resolve("command", name);
-    const handlers = yield* readHandlerSource(source.path, source.exportName);
+    const handlers = yield* readCommandDiagramSource({ ...source, commandTag: name });
     const markdown = yield* Effect.try({
       try: () => renderCommand(source.aggregate, name, handlers),
       catch: (cause) => DiagramError.make({ message: `Cannot render ${name}`, cause }),
@@ -64,7 +64,7 @@ const aggregateCommands = Command.make(
   { name: Argument.String("aggregate-name") },
   Effect.fn(function* ({ name }) {
     const source = yield* resolve("aggregate", name);
-    const handlers = yield* readHandlerSource(source.path, source.exportName);
+    const handlers = yield* readCommandDiagramSource(source);
     const markdown = yield* Effect.try({
       try: () => renderAggregateCommands(source.aggregate, handlers),
       catch: (cause) => DiagramError.make({ message: `Cannot render ${name}`, cause }),

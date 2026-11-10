@@ -225,6 +225,17 @@ export function readAggregateLocation(request: {
   });
 }
 
+export function handlerSource({ decide, evolve }: HandlerNodes): HandlerSource {
+  return {
+    decide: new Map(
+      Array.map(Array.fromIterable(decide), ([tag, node]) => [tag, node.getText()] as const),
+    ),
+    evolve: new Map(
+      Array.map(Array.fromIterable(evolve), ([tag, node]) => [tag, node.getText()] as const),
+    ),
+  };
+}
+
 /** Fail closed for executable table factories, dynamic keys, and other unsupported syntax. */
 export const readHandlerSource: {
   (exportName: string): (path: string) => Effect.Effect<HandlerSource, DiagramError>;
@@ -233,13 +244,6 @@ export const readHandlerSource: {
   inspectHandlers({
     path,
     exportName,
-    inspect: ({ decide, evolve }) => ({
-      decide: new Map(
-        Array.map(Array.fromIterable(decide), ([tag, node]) => [tag, node.getText()] as const),
-      ),
-      evolve: new Map(
-        Array.map(Array.fromIterable(evolve), ([tag, node]) => [tag, node.getText()] as const),
-      ),
-    }),
+    inspect: handlerSource,
   }),
 );
