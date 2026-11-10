@@ -6,6 +6,7 @@ import {
   Record,
   Schema,
   SchemaAST,
+  SchemaRepresentation,
   String as Str,
 } from "effect";
 
@@ -79,6 +80,29 @@ export function stateTags(ast: SchemaAST.AST): readonly string[] {
   return Option.getOrElse(Option.all(tags), () => []);
 }
 
+function describeState(state: Schema.Top): string {
+  const ast = Schema.toType(state).ast;
+  const tags = stateTags(ast);
+  if (tags.length > 0) return Array.join(tags, "\n");
+  const document = SchemaRepresentation.toCodeDocument(
+    SchemaRepresentation.toRepresentations([ast]),
+  );
+  return Array.join(
+    [
+      ...Array.map(document.codes, (code) => code.runtime),
+      ...Array.map(
+        document.references.nonRecursives,
+        ({ $ref, code }) => `${$ref} = ${code.runtime}`,
+      ),
+      ...Array.map(
+        Record.toEntries(document.references.recursives),
+        ([name, code]) => `${name} = ${code.runtime}`,
+      ),
+    ],
+    "\n",
+  );
+}
+
 function label(value: string): string {
   return Function.pipe(
     value,
@@ -114,9 +138,7 @@ export const renderCommand: {
       Array.findFirst(definition.commands, (command) => command.tag === commandTag),
     );
     if (command === undefined) throw new Error(`Unknown command: ${commandTag}`);
-    const tags = stateTags(definition.state.ast);
-    const stateDescription =
-      tags.length > 0 ? Array.join(tags, "\n") : String(definition.state.ast);
+    const stateDescription = describeState(definition.state);
     const sections = [
       `# ${aggregate.aggregateName}`,
       "Declared outcomes; no reachability inferred. Handler code is source, not an execution trace.",
@@ -128,7 +150,7 @@ export const renderCommand: {
       "```mermaid",
       "flowchart LR",
       "    classDef command fill:#dbeafe,stroke:#2563eb,color:#172554",
-      "    classDef event fill:#ffedd5,stroke:#ea580c,color:#431407",
+      "    classDef event fill:#dcfce7,stroke:#16a34a,color:#14532d",
       "    classDef rejection fill:#fee2e2,stroke:#dc2626,color:#450a0a",
       "    class C command",
       node("B", `INPUT STATE\n${stateDescription}`),

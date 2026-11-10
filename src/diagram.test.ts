@@ -19,6 +19,8 @@ describe("aggregate diagrams", () => {
       expect(markdown).toContain("REJECTION: Limited");
       expect(markdown).toContain("class C command");
       expect(markdown).toContain("class E0 event");
+      expect(markdown).toContain("classDef command fill:#dbeafe,stroke:#2563eb,color:#172554");
+      expect(markdown).toContain("classDef event fill:#dcfce7,stroke:#16a34a,color:#14532d");
       expect(markdown).toContain("class R0 rejection");
       expect(markdown).toContain("declared rejection");
       expect(markdown).toContain("OUTPUT STATE<br/>Empty<br/>Counting");
@@ -62,6 +64,24 @@ describe("aggregate diagrams", () => {
   it("does not fabricate tags for a partially tagged state schema", () => {
     const state = Schema.Union([Schema.TaggedStruct("Known", {}), Schema.String]);
     expect(stateTags(state.ast)).toEqual([]);
+  });
+
+  it("describes untagged state fields and constraints in both state boxes", () => {
+    const aggregate = Schema.decodeUnknownSync(AggregateContract)(Counter);
+    const markdown = renderCommand(
+      {
+        ...aggregate,
+        definition: { ...aggregate.definition, state: Schema.Struct({ notes: Schema.Int }) },
+      },
+      "Increase",
+      {
+        decide: new Map([["Increase", "() => []"]]),
+        evolve: new Map([["Increased", "(state) => state"]]),
+      },
+    );
+    expect(markdown).toContain("INPUT STATE<br/>Schema.Struct({ #quot;notes#quot;: Schema.Int })");
+    expect(markdown).toContain("OUTPUT STATE<br/>Schema.Struct({ #quot;notes#quot;: Schema.Int })");
+    expect(markdown).not.toContain("Objects");
   });
 
   it("fails instead of inventing missing handler source", () => {
