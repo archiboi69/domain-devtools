@@ -151,7 +151,7 @@ function analyze(
       for (const path of paths) {
         const expression = unwrap(path.expression);
         if (!isArrayLiteralExpression(expression)) {
-          const tag = literalTag({ checker, node: expression });
+          const tag = path.valueTag ?? literalTag({ checker, node: expression });
           if (
             !isNewExpression(expression) &&
             !isYieldExpression(expression) &&

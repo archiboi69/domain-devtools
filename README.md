@@ -62,7 +62,7 @@ Each node is a declared top-level `_tag`. Each arrow has exactly one event label
 
 This is bounded static analysis, not execution or a reachability proof. It supports explicit tag comparisons, boolean guards, conditionals, early returns, tag switches, root aliases, and `Effect.gen` returns. Other guards remain unknown. Required schema literals can rule out impossible branches without becoming state nodes. The compiler supplies singleton event tags, including typed event helper results. Evolution reads explicit returned tags and typed object spreads. Conditional `_tag` expressions contribute each distinct literal destination as a static candidate; an unknown branch remains an explicit gap. Multiple events in one array evolve in order through every resolved destination.
 
-Unsupported paths appear under **Unresolved paths**, outside the diagram. Nested state selection, reassigned state aliases, loops, arbitrary wrappers, and ambiguous helper-returned states require more analysis. Partial diagrams remain partial. Untagged schemas produce a report rather than invented states based on fields such as `status`.
+Unsupported paths appear under **Unresolved paths**, outside the diagram. Local plain and Effect helpers can preserve root identity and narrow root tags through positional arguments. Tagged failure branches stay separate from successful returned state. Recursive calls have a depth limit. Nested state selection, reassigned state aliases, loops, arbitrary wrappers, and ambiguous helper-returned states require more analysis. Partial diagrams remain partial. Untagged schemas produce a report rather than invented states based on fields such as `status`.
 
 ## What the command diagram means
 

@@ -32,10 +32,12 @@ import {
 export interface ReturnPath {
   readonly expression: Node;
   readonly aliases: ReadonlySet<string>;
+  readonly valueTag: string | undefined;
 }
 interface Flow {
   readonly aliases: ReadonlySet<string>;
   readonly constants: ReadonlyMap<string, string>;
+  readonly tags: ReadonlyMap<string, string>;
 }
 type Truth = boolean | undefined;
 
@@ -104,20 +106,23 @@ function truth(node: Node, flow: Flow): Truth {
   }
   const left = unwrap(value.left);
   const right = unwrap(value.right);
-  const leftPath = propertyPath(left, flow.aliases);
-  const rightPath = propertyPath(right, flow.aliases);
-  const actual =
-    leftPath === undefined
-      ? rightPath === undefined
-        ? undefined
-        : flow.constants.get(rightPath)
-      : flow.constants.get(leftPath);
-  const expected =
-    leftPath !== undefined && isStringLiteral(right)
-      ? right.text
-      : rightPath !== undefined && isStringLiteral(left)
-        ? left.text
-        : undefined;
+  const known = (expression: Node): string | undefined => {
+    const path = propertyPath(expression, flow.aliases);
+    if (path !== undefined) return flow.constants.get(path);
+    if (
+      isPropertyAccessExpression(expression) &&
+      expression.name.getText() === "_tag" &&
+      isIdentifier(expression.expression)
+    )
+      return flow.tags.get(expression.expression.getText());
+    return undefined;
+  };
+  const actual = isStringLiteral(right) ? known(left) : known(right);
+  const expected = isStringLiteral(right)
+    ? right.text
+    : isStringLiteral(left)
+      ? left.text
+      : undefined;
   if (actual === undefined || expected === undefined) return undefined;
   if (op === SyntaxKind.EqualsEqualsEqualsToken) return actual === expected;
   if (op === SyntaxKind.ExclamationEqualsEqualsToken) return actual !== expected;
@@ -132,6 +137,8 @@ export function returnPaths(request: {
   readonly stateTags: readonly string[];
   readonly constants: ReadonlyMap<string, string>;
   readonly report: (reason: string) => void;
+  readonly rootParameters?: readonly number[];
+  readonly stack?: readonly Node[];
 }): readonly ReturnPath[] {
   const { tag, checker, stateTags, report } = request;
   const resolved = handlerBody({ node: request.handler, checker });
@@ -148,23 +155,53 @@ export function returnPaths(request: {
     report("Unsupported handler function");
     return [];
   }
-  const parameter = handler.parameters[0]?.name;
-  if ((parameter !== undefined && !isIdentifier(parameter)) || handler.body === undefined) {
+  const stack = request.stack ?? [];
+  if (stack.length >= 12 || Array.some(stack, (ancestor) => ancestor === handler)) {
+    report("Recursive helper or helper depth limit reached");
+    return [];
+  }
+  const parameters = Array.flatMap(request.rootParameters ?? [0], (index) => {
+    const parameter = handler.parameters[index]?.name;
+    return parameter === undefined ? [] : [parameter];
+  });
+  if (
+    Array.some(parameters, (parameter) => !isIdentifier(parameter)) ||
+    handler.body === undefined
+  ) {
     report("Missing plain state parameter or handler body");
     return [];
   }
   const returns: ReturnPath[] = [];
   let steps = 0;
-  const emit = (node: Node, flow: Flow): void => {
+  const helperReturns = (node: Node, flow: Flow): readonly ReturnPath[] | undefined => {
+    const value = unwrap(node);
+    if (!isCallExpression(value)) return undefined;
+    const rootParameters = Array.flatMap(value.arguments, (argument, index) => {
+      const input = unwrap(argument);
+      return isIdentifier(input) && flow.aliases.has(input.getText()) ? [index] : [];
+    });
+    if (
+      rootParameters.length === 0 ||
+      handlerBody({ node: value.expression, checker }) === undefined
+    )
+      return undefined;
+    return returnPaths({
+      ...request,
+      handler: value.expression,
+      rootParameters,
+      stack: [...stack, handler],
+    });
+  };
+  const emit = (node: Node, flow: Flow, yielded = false): void => {
     const value = unwrap(node);
     if (isConditionalExpression(value)) {
       const condition = truth(value.condition, flow);
-      if (condition !== false) emit(value.whenTrue, flow);
-      if (condition !== true) emit(value.whenFalse, flow);
+      if (condition !== false) emit(value.whenTrue, flow, yielded);
+      if (condition !== true) emit(value.whenFalse, flow, yielded);
       return;
     }
     if (isYieldExpression(value) && value.expression !== undefined) {
-      emit(value.expression, flow);
+      emit(value.expression, flow, true);
       return;
     }
     if (isCallExpression(value)) {
@@ -186,7 +223,24 @@ export function returnPaths(request: {
         return;
       }
     }
-    returns.push({ expression: value, aliases: flow.aliases });
+    const nested = helperReturns(value, flow);
+    if (nested !== undefined) {
+      returns.push(...nested);
+      return;
+    }
+    const valueTag =
+      isIdentifier(value) && flow.aliases.has(value.getText())
+        ? tag
+        : isIdentifier(value)
+          ? (flow.tags.get(value.getText()) ?? literalTag({ checker, node: value }))
+          : literalTag({ checker, node: value });
+    if (yielded) {
+      // Tagged errors yielded from a generator terminate that branch, not its success value.
+      if (valueTag !== undefined && !Array.contains(stateTags, valueTag)) return;
+      report(`Unresolved yielded result: ${value.getText()}`);
+      return;
+    }
+    returns.push({ expression: value, aliases: flow.aliases, valueTag });
   };
   const sequence = (nodes: readonly Node[], initial: readonly Flow[]): readonly Flow[] => {
     let flows = initial;
@@ -247,43 +301,65 @@ export function returnPaths(request: {
       return flows;
     }
     if (isVariableStatement(node)) {
-      const aliases = new Set(flow.aliases);
+      let flows: readonly Flow[] = [flow];
       for (const declaration of node.declarationList.declarations) {
-        const value =
-          declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
-        if (isIdentifier(declaration.name) && aliases.has(declaration.name.getText())) {
-          report(`Root alias shadowed: ${declaration.name.getText()}`);
-          return [];
-        }
-        if (isIdentifier(declaration.name) && value !== undefined) {
-          if (isIdentifier(value) && aliases.has(value.getText())) {
-            aliases.add(declaration.name.getText());
-          } else {
-            const selectedTag = checker
-              .getTypeAtLocation(value)
-              .getNonNullableType()
-              .getProperty("_tag");
-            if (selectedTag !== undefined) {
-              const selectedType = checker.getTypeOfSymbolAtLocation(selectedTag, value);
-              const members = selectedType.isUnionType() ? selectedType.getTypes() : [selectedType];
-              if (
-                Array.some(
-                  members,
-                  (member) =>
-                    member.isStringLiteralType() && Array.contains(stateTags, member.value),
-                )
-              ) {
-                report(`State selection is not a root alias: ${value.getText()}`);
-                return [];
-              }
-            }
+        flows = Array.flatMap(flows, (current): readonly Flow[] => {
+          const value =
+            declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
+          if (!isIdentifier(declaration.name)) return [current];
+          const name = declaration.name.getText();
+          if (current.aliases.has(name)) {
+            report(`Root alias shadowed: ${name}`);
+            return [];
           }
-        }
+          if (value === undefined) return [current];
+          if (isIdentifier(value) && current.aliases.has(value.getText()))
+            return [{ ...current, aliases: new Set([...current.aliases, name]) }];
+          const selectedTag = checker
+            .getTypeAtLocation(value)
+            .getNonNullableType()
+            .getProperty("_tag");
+          if (selectedTag === undefined) return [current];
+          const selectedType = checker.getTypeOfSymbolAtLocation(selectedTag, value);
+          const members = selectedType.isUnionType() ? selectedType.getTypes() : [selectedType];
+          if (
+            !Array.some(
+              members,
+              (member) => member.isStringLiteralType() && Array.contains(stateTags, member.value),
+            )
+          )
+            return [current];
+          const call =
+            isYieldExpression(value) && value.expression !== undefined ? value.expression : value;
+          const results = helperReturns(call, current);
+          if (results === undefined) {
+            report(`State selection is not a root alias: ${value.getText()}`);
+            return [];
+          }
+          return Array.flatMap(results, (result): readonly Flow[] => {
+            const returned = unwrap(result.expression);
+            if (isIdentifier(returned) && result.aliases.has(returned.getText()))
+              return [{ ...current, aliases: new Set([...current.aliases, name]) }];
+            if (result.valueTag !== undefined)
+              return [{ ...current, tags: new Map([...current.tags, [name, result.valueTag]]) }];
+            report(`Unresolved helper result: ${result.expression.getText()}`);
+            return [];
+          });
+        });
       }
-      return [{ ...flow, aliases }];
+      return flows;
     }
     if (isExpressionStatement(node)) {
       const expression = node.expression;
+      if (isYieldExpression(expression) && expression.expression !== undefined) {
+        const yielded = unwrap(expression.expression);
+        if (isCallExpression(yielded)) {
+          const operation = effectOperation({ node: yielded.expression, checker });
+          if (operation === "fail" || operation === "die") return [];
+        }
+        const results = helperReturns(yielded, flow);
+        if (results !== undefined && results.length === 0) return [];
+      }
       if (
         isBinaryExpression(expression) &&
         expression.operatorToken.kind === SyntaxKind.EqualsToken
@@ -300,8 +376,9 @@ export function returnPaths(request: {
     return [];
   };
   const initial = {
-    aliases: new Set(parameter === undefined ? [] : [parameter.getText()]),
+    aliases: new Set(Array.map(parameters, (parameter) => parameter.getText())),
     constants: request.constants,
+    tags: new Map<string, string>(),
   };
   if (isBlock(handler.body)) walk(handler.body, initial);
   else emit(handler.body, initial);
