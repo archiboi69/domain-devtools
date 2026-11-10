@@ -5,7 +5,15 @@ import { AggregateContract } from "./diagram";
 import { HelperFlow } from "./helper-flow.fixture";
 import { readStateDiagram } from "./state-diagram";
 
-it.each(["Finish", "Plain", "Recursive"])("analyzes %s helper paths", (command) =>
+it.each([
+  "Finish",
+  "Plain",
+  "Recursive",
+  "VoidValidation",
+  "FallthroughValidation",
+  "BareReturnValidation",
+  "DeniedValidation",
+])("analyzes %s helper paths", (command) =>
   Effect.gen(function* () {
     const aggregate = yield* Schema.decodeUnknownEffect(AggregateContract)(HelperFlow);
     const diagram = yield* readStateDiagram({
@@ -23,7 +31,9 @@ it.each(["Finish", "Plain", "Recursive"])("analyzes %s helper paths", (command) 
       },
     });
     expect(diagram.transitions).toEqual(
-      command === "Recursive" ? [] : [{ from: "Ready", event: "Finished", to: "Done", command }],
+      command === "Recursive" || command === "DeniedValidation"
+        ? []
+        : [{ from: "Ready", event: "Finished", to: "Done", command }],
     );
     expect(diagram.unresolved).toEqual(
       command === "Recursive" ? ["Recursive: Recursive helper or helper depth limit reached"] : [],

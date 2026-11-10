@@ -50,7 +50,7 @@ function destinations(
   states: readonly string[],
   depth = 0,
 ): readonly (string | undefined)[] {
-  if (depth > 12) return [undefined];
+  if (depth > 12 || path.expression === undefined) return [undefined];
   const node = unwrap(path.expression);
   const update = opticUpdate({ expression: node, aliases: path.aliases, from, checker });
   if (update?.kind === "preserve") return [from];
@@ -174,6 +174,10 @@ function analyze(
         },
       });
       for (const path of paths) {
+        if (path.expression === undefined) {
+          unresolved.add(`${command.tag}: nonliteral event-array return: void`);
+          continue;
+        }
         const expression = unwrap(path.expression);
         if (!isArrayLiteralExpression(expression)) {
           const tag = path.valueTag ?? literalTag({ checker, node: expression });
@@ -218,7 +222,7 @@ function analyze(
               for (const to of destinations(result, before, checker, states)) {
                 if (to === undefined || !Array.contains(states, to)) {
                   unresolved.add(
-                    `${event}: unresolved destination: ${result.expression.getText()}`,
+                    `${event}: unresolved destination: ${result.expression?.getText() ?? "void"}`,
                   );
                   continue;
                 }
@@ -269,37 +273,31 @@ function escape(value: string): string {
 
 /** Event labels only. Unknown paths remain outside the graph, never fake state nodes. */
 export function renderStateDiagram(diagram: StateDiagram): string {
-  const eventNumbers = new Map<string, number>();
-  for (const { event } of diagram.transitions) {
-    if (!eventNumbers.has(event)) eventNumbers.set(event, eventNumbers.size + 1);
-  }
-  const eventLabel = (event: string) => `${eventNumbers.get(event)}. ${event}`;
   const lines = [
     `# ${diagram.name} — static state overview`,
     "Static candidates from tag guards, returned event arrays, and evolution source. Other guards remain unevaluated; this is not proof of reachability or complete coverage.",
-    "Event numbers identify event types within this aggregate, not execution order.",
+    "Numbers identify transitions in the evidence table, not execution order.",
   ];
   if (diagram.states.length > 0) {
     const ids = new Map(Array.map(diagram.states, (tag, index) => [tag, `s${index}`] as const));
     lines.push("```mermaid", "stateDiagram-v2", "    direction LR");
     for (const [tag, id] of ids) lines.push(`    state "${escape(tag)}" as ${id}`);
     if (diagram.initial !== undefined) lines.push(`    [*] --> ${ids.get(diagram.initial)}`);
-    const edges = new Set<string>();
-    for (const transition of diagram.transitions) {
-      edges.add(
-        `    ${ids.get(transition.from)} --> ${ids.get(transition.to)}: ${escape(eventLabel(transition.event))}`,
+    for (const [index, transition] of diagram.transitions.entries()) {
+      lines.push(
+        `    ${ids.get(transition.from)} --> ${ids.get(transition.to)}: ${index + 1}. ${escape(transition.event)}`,
       );
     }
-    lines.push(...edges, "```");
+    lines.push("```");
   }
   lines.push(
     "## Transition evidence",
-    "| From | Command | Event | To |",
-    "| --- | --- | --- | --- |",
+    "| # | From | Command | Event | To |",
+    "| --- | --- | --- | --- | --- |",
   );
-  for (const transition of diagram.transitions)
+  for (const [index, transition] of diagram.transitions.entries())
     lines.push(
-      `| ${transition.from} | ${transition.command} | ${eventLabel(transition.event)} | ${transition.to} |`,
+      `| ${index + 1} | ${transition.from} | ${transition.command} | ${transition.event} | ${transition.to} |`,
     );
   if (diagram.unresolved.length > 0) {
     lines.push("## Unresolved paths");

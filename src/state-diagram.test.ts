@@ -29,9 +29,26 @@ describe("static state diagrams", () => {
       expect(markdown).toContain("s0 --> s1: 2. Activated");
       expect(markdown).toContain("s2 --> s2: 4. Noted");
       expect(markdown).not.toContain('state "Blocked"');
-      expect(markdown).toContain("| From | Command | Event | To |");
-      expect(markdown).toContain("| Done | Finish | 4. Noted | Done |");
+      expect(markdown).toContain("| # | From | Command | Event | To |");
+      expect(markdown).toContain("| 4 | Done | Finish | Noted | Done |");
     }).pipe(Effect.runPromise));
+
+  it("keeps different commands as distinct numbered transitions even when their event and states match", () => {
+    const markdown = renderStateDiagram({
+      name: "Example",
+      states: ["Ready", "Done"],
+      initial: "Ready",
+      unresolved: [],
+      transitions: [
+        { from: "Ready", command: "Finish", event: "Finished", to: "Done" },
+        { from: "Ready", command: "ForceFinish", event: "Finished", to: "Done" },
+      ],
+    });
+    expect(markdown).toContain("s0 --> s1: 1. Finished");
+    expect(markdown).toContain("s0 --> s1: 2. Finished");
+    expect(markdown).toContain("| 1 | Ready | Finish | Finished | Done |");
+    expect(markdown).toContain("| 2 | Ready | ForceFinish | Finished | Done |");
+  });
 
   it("leaves unsupported computed destinations unresolved instead of inventing an edge", () =>
     Effect.gen(function* () {

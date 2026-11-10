@@ -21,10 +21,13 @@ describe("conditional state tags", () => {
       expect(diagram.unresolved).toEqual([]);
       const markdown = renderStateDiagram(diagram);
       expect(markdown).toContain("s0 --> s1: 1. Routed");
-      expect(markdown).toContain("s0 --> s2: 1. Routed");
-      expect(markdown).toContain("| Idle | Route | 1. Routed | Waiting |");
-      expect(markdown).toContain("| Idle | Route | 1. Routed | Running |");
-      expect(markdown).toContain("| Waiting | Route | 2. Noted | Waiting |");
+      expect(markdown).toContain("s0 --> s2: 2. Routed");
+      expect(markdown).toContain("s1 --> s1: 3. Noted");
+      expect(markdown).toContain("s2 --> s2: 4. Noted");
+      expect(markdown).toContain("| 1 | Idle | Route | Routed | Waiting |");
+      expect(markdown).toContain("| 2 | Idle | Route | Routed | Running |");
+      expect(markdown).toContain("| 3 | Waiting | Route | Noted | Waiting |");
+      expect(markdown).toContain("| 4 | Running | Route | Noted | Running |");
     }).pipe(Effect.runPromise));
 
   it("retains known branches while reporting unknown destinations", () =>

@@ -30,7 +30,8 @@ import {
 } from "typescript/ast";
 
 export interface ReturnPath {
-  readonly expression: Node;
+  /** Undefined is successful void completion, not a rejected or unresolved path. */
+  readonly expression: Node | undefined;
   readonly aliases: ReadonlySet<string>;
   readonly valueTag: string | undefined;
 }
@@ -172,6 +173,9 @@ export function returnPaths(request: {
     return [];
   }
   const returns: ReturnPath[] = [];
+  const complete = (flow: Flow): void => {
+    returns.push({ expression: undefined, aliases: flow.aliases, valueTag: undefined });
+  };
   let steps = 0;
   const helperReturns = (node: Node, flow: Flow): readonly ReturnPath[] | undefined => {
     const value = unwrap(node);
@@ -194,6 +198,10 @@ export function returnPaths(request: {
   };
   const emit = (node: Node, flow: Flow, yielded = false): void => {
     const value = unwrap(node);
+    if (effectOperation({ node: value, checker }) === "void") {
+      complete(flow);
+      return;
+    }
     if (isConditionalExpression(value)) {
       const condition = truth(value.condition, flow);
       if (condition !== false) emit(value.whenTrue, flow, yielded);
@@ -219,7 +227,7 @@ export function returnPaths(request: {
         isFunctionExpression(argument) &&
         argument.asteriskToken !== undefined
       ) {
-        walk(argument.body, flow);
+        for (const current of walk(argument.body, flow)) complete(current);
         return;
       }
     }
@@ -256,6 +264,7 @@ export function returnPaths(request: {
     if (isBlock(node)) return sequence(node.statements, [flow]);
     if (isReturnStatement(node)) {
       if (node.expression !== undefined) emit(node.expression, flow);
+      else complete(flow);
       return [];
     }
     if (isThrowStatement(node)) return [];
@@ -337,12 +346,17 @@ export function returnPaths(request: {
             return [];
           }
           return Array.flatMap(results, (result): readonly Flow[] => {
-            const returned = unwrap(result.expression);
-            if (isIdentifier(returned) && result.aliases.has(returned.getText()))
+            const returned =
+              result.expression === undefined ? undefined : unwrap(result.expression);
+            if (
+              returned !== undefined &&
+              isIdentifier(returned) &&
+              result.aliases.has(returned.getText())
+            )
               return [{ ...current, aliases: new Set([...current.aliases, name]) }];
             if (result.valueTag !== undefined)
               return [{ ...current, tags: new Map([...current.tags, [name, result.valueTag]]) }];
-            report(`Unresolved helper result: ${result.expression.getText()}`);
+            report(`Unresolved helper result: ${result.expression?.getText() ?? "void"}`);
             return [];
           });
         });
@@ -380,7 +394,8 @@ export function returnPaths(request: {
     constants: request.constants,
     tags: new Map<string, string>(),
   };
-  if (isBlock(handler.body)) walk(handler.body, initial);
-  else emit(handler.body, initial);
+  if (isBlock(handler.body)) {
+    for (const flow of walk(handler.body, initial)) complete(flow);
+  } else emit(handler.body, initial);
   return returns;
 }

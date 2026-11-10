@@ -71,7 +71,7 @@ Declared outcomes are contract possibilities, not proven paths. The accepted no-
 
 ### State overviews
 
-Each node is a declared top-level state tag. Each arrow has exactly one numbered event label. The same event has the same number in the graph and evidence table. Numbers identify event types within an aggregate, not execution order. The evidence table identifies the associated commands. Same-tag transitions always appear as self-loops.
+Each node is a declared top-level state tag. Each arrow has exactly one event label and a transition number. The number matches the `#` column in its evidence row: #, From, Command, Event, To. The same event in different transitions has different numbers. Numbers do not indicate execution order. Same-tag transitions always appear as self-loops.
 
 Arrows are static candidates, not observed transitions or proof of reachability. **Unresolved paths** identify gaps in the analysis. Missing arrows can reflect those gaps rather than absent domain behavior. No reported gaps is not a guarantee of complete analysis.
 

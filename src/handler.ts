@@ -46,12 +46,12 @@ function effectFunction(node: Node, checker: Checker, seen = new Set<Node>()): s
   const file = target.getSourceFile().fileName;
   if (
     Array.contains(
-      ["fn", "fnUntraced", "fnUntracedEager", "gen", "succeed", "fail", "die"],
+      ["fn", "fnUntraced", "fnUntracedEager", "gen", "succeed", "fail", "die", "void_"],
       name,
     ) &&
     /(?:^|[/\\])effect[/\\](?:src|dist)[/\\]Effect\.(?:d\.)?ts$/u.test(file)
   )
-    return name;
+    return name === "void_" ? "void" : name;
   return target.initializer === undefined
     ? undefined
     : effectFunction(target.initializer, checker, seen);
